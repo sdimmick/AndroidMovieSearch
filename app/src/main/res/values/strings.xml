@@ -1,5 +1,7 @@
 <resources>
-    <string name="app_name">AndroidMovieSearch</string>
+    <string name="app_name">Movie Search</string>
     <string name="title_search">Search</string>
     <string name="title_favorites">Favorites</string>
+    <string name="search_hint">Movie title</string>
+    <string name="search_label">Movie search</string>
 </resources>
