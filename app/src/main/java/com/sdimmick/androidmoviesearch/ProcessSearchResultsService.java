@@ -62,43 +62,58 @@ public class ProcessSearchResultsService extends IntentService {
         }
     }
 
+    protected ContentValues getContentValuesForResult(String result, String query) throws JSONException {
+        JSONObject detailsJson = new JSONObject(result);
+        SearchResult searchResult = SearchResult.fromResponse(detailsJson, query);
+
+        ContentValues cv = new ContentValues();
+        cv.put(MovieSearchContract.MovieSearchResult.COLUMN_NAME_PLOT_SUMMARY, searchResult.getPlotSummary());
+        cv.put(MovieSearchContract.MovieSearchResult.COLUMN_NAME_DIRECTOR, searchResult.getDirector());
+
+        return cv;
+    }
+
     private void processMovieDetails(String result, String query) {
         Log.d(TAG, "Processing movie details result: " + result);
         try {
-            JSONObject detailsJson = new JSONObject(result);
-            SearchResult searchResult = SearchResult.fromResponse(detailsJson, query);
+            ContentValues contentValues = getContentValuesForResult(result, query);
+            String imdbId = contentValues.getAsString(MovieSearchContract.MovieSearchResult.COLUMN_NAME_IMDB_ID);
 
-            ContentValues cv = new ContentValues();
-            cv.put(MovieSearchContract.MovieSearchResult.COLUMN_NAME_PLOT_SUMMARY, searchResult.getPlotSummary());
-            cv.put(MovieSearchContract.MovieSearchResult.COLUMN_NAME_DIRECTOR, searchResult.getDirector());
-
-            MovieSearchApplication.getDatabase().updateByImdbId(searchResult.getImdbId(), cv);
+            MovieSearchApplication.getDatabase().updateByImdbId(imdbId, contentValues);
         } catch (JSONException e) {
             Log.e(TAG, "Error parsing movie details", e);
         }
+    }
+
+    protected List<SearchResult> parseSearchResults(PendingSearchResult pendingResult) throws JSONException {
+        JSONObject resultsJson = new JSONObject(pendingResult.results);
+        JSONArray resultsArray = resultsJson.optJSONArray("Search");
+        if (resultsArray == null) {
+            Log.w(TAG, "No search results found in response");
+            MovieSearch.sendSearchResultsErrorBroadcast(MovieSearchApplication.getInstance());
+            return null;
+        }
+
+        List<SearchResult> parsedSearchResults = new ArrayList<>();
+        for (int i = 0; i < resultsArray.length(); i++) {
+            JSONObject result = resultsArray.getJSONObject(i);
+            SearchResult sr = SearchResult.fromResponse(result, pendingResult.query);
+            parsedSearchResults.add(sr);
+
+            MovieSearchApplication.getMovieSearch().getMovieDetails(sr.getImdbId(), pendingResult.query);
+        }
+
+        return parsedSearchResults;
     }
 
     private void processSearchResults(PendingSearchResult pendingResult) {
         Log.d(TAG, "processSearchResults: " + pendingResult);
 
         try {
-            JSONObject resultsJson = new JSONObject(pendingResult.results);
-            JSONArray resultsArray = resultsJson.optJSONArray("Search");
-            if (resultsArray == null) {
-                Log.w(TAG, "No search results found in response");
-                MovieSearch.sendSearchResultsErrorBroadcast(MovieSearchApplication.getInstance());
+            List<SearchResult> parsedSearchResults = parseSearchResults(pendingResult);
+            if (parsedSearchResults == null) {
                 return;
             }
-
-            List<SearchResult> parsedSearchResults = new ArrayList<>();
-            for (int i = 0; i < resultsArray.length(); i++) {
-                JSONObject result = resultsArray.getJSONObject(i);
-                SearchResult sr = SearchResult.fromResponse(result, pendingResult.query);
-                parsedSearchResults.add(sr);
-
-                MovieSearchApplication.getMovieSearch().getMovieDetails(sr.getImdbId(), pendingResult.query);
-            }
-
             MovieSearchApplication.getDatabase().insertSearchResults(parsedSearchResults);
             Log.d(TAG, "Processed " + parsedSearchResults.size() + " results");
         } catch (JSONException e) {
